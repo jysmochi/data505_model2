@@ -1,0 +1,99 @@
+---
+title: "Model 2"
+author: "Group 5"
+date: "04/14/2025"
+
+format: 
+  html:  
+    theme: superhero  
+    mainfont: monospace
+    highlight-style: github
+    title-block-banner: true
+    embed-resources: true
+---
+
+# 1. Set up
+
+```{r}
+sh <- suppressPackageStartupMessages
+sh(library(tidyverse))
+sh(library(caret))
+sh(library(naivebayes))
+sh(library(pROC))
+sh(library(thematic))
+sh(library(tidytext))
+sh(library(SnowballC)) 
+sh(library(glmnet))
+sh(library(scales))
+sh(library(EnvStats))
+sh(library(fastDummies))
+sh(library(VGAM))
+data(stop_words)
+```
+
+# 2. Reading in the Data
+
+```{r}
+bank <- readRDS(gzcon(url("https://cd-public.github.io/D505/dat/BankChurners.rds")))
+```
+
+# 3. Some Bookkeeping
+
+```{r}
+bank = bank %>%
+  mutate(Churn = Churn=="yes") %>%
+  dummy_cols(remove_selected_columns = T) %>%
+  mutate(Churn = ifelse(Churn == T, "yes", "no"))
+test = bank
+```
+
+# 4. Some PCA
+
+```{r}
+pr_bank = prcomp(x = select(bank, -Churn), scale = T, center = T)
+summary(pr_bank)
+
+pc15 = rownames_to_column(as.data.frame(pr_bank$rotation)) %>% select(1:6) %>%
+  filter(abs(PC1) >= 0.3 | abs(PC2) >= 0.3 | abs(PC3) >= 0.3 | abs(PC4) >= 0.3 | abs(PC5) >= 0.3)
+
+scrplot = screeplot(pr_bank, type = "lines")
+
+pr.var=pr_bank$sdev^2
+pve=pr.var/sum(pr.var)
+pca_varp = plot(pve, xlab="Principal Component", ylab="Proportion of Variance Explained", ylim=c(0,1),type='b')
+pca_cumvarp = plot(cumsum(pve), xlab="Principal Component", ylab="Cumulative Proportion of Variance Explained", ylim=c(0,1),type='b')
+```
+
+# 5. Are the Distributions Different?
+
+```{r}
+prc <- bind_cols(select(bank, Churn), as.data.frame(pr_bank$x)) %>% select(1:6) %>%
+  rename("Rich" = PC1, "CardMan" = PC2, "Trans" = PC3, "Old"= PC4, "Married" = PC5)
+prc %>%
+  pivot_longer(cols = -Churn, names_to = "component", values_to = "loading") %>%
+  ggplot(aes(loading, fill=Churn)) + geom_density(alpha = 0.5) + facet_grid(.~component)
+```
+
+# 6. Formatting
+
+```{r}
+test = prc %>%
+  select(2:6,1)
+```
+
+# 6. Test the Dataset
+
+```{r}
+train(Churn ~ .,
+      data = test |> select(1,2,3,4,5,grep("Churn", colnames(test))), 
+      trControl = trainControl(method = "cv", number = 5),
+      method = "glm",
+      family = "binomial",
+      maxit = 5)$results['Kappa']
+```
+
+# 7. Save the .rds
+
+```{r}
+write_rds(test, file="model_2.rds")
+```
